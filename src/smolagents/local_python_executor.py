@@ -1306,12 +1306,45 @@ def get_safe_module(raw_module, authorized_imports, visited=None):
     return safe_module
 
 
+def _bind_imported_module(
+    state: dict[str, Any],
+    module_name: str,
+    authorized_imports: list[str],
+    asname: str | None,
+) -> None:
+    """Bind an import the way Python does.
+
+    `import pkg.mod` binds the name `pkg` (not the dotted string `pkg.mod`) and
+    attaches each child module so `pkg.mod` attribute access works. An alias
+    binds only that name.
+    """
+    leaf = get_safe_module(import_module(module_name), authorized_imports)
+    if asname:
+        state[asname] = leaf
+        return
+
+    parts = module_name.split(".")
+    if len(parts) == 1:
+        state[parts[0]] = leaf
+        return
+
+    top_name = parts[0]
+    existing = state.get(top_name)
+    if not isinstance(existing, ModuleType):
+        state[top_name] = get_safe_module(import_module(top_name), authorized_imports)
+    current = state[top_name]
+    for index in range(1, len(parts)):
+        full_name = ".".join(parts[: index + 1])
+        child = leaf if index == len(parts) - 1 else get_safe_module(import_module(full_name), authorized_imports)
+        setattr(current, parts[index], child)
+        current = child
+
+
 def evaluate_import(expression, state, authorized_imports):
     if isinstance(expression, ast.Import):
         for alias in expression.names:
             if check_import_authorized(alias.name, authorized_imports):
-                raw_module = import_module(alias.name)
-                state[alias.asname or alias.name] = get_safe_module(raw_module, authorized_imports)
+                _bind_imported_module(state, alias.name, authorized_imports, alias.asname)
             else:
                 raise InterpreterError(
                     f"Import of {alias.name} is not allowed. Authorized imports are: {str(authorized_imports)}"

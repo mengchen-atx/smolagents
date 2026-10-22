@@ -778,6 +778,31 @@ if char.isalpha():
         evaluate_python_code(code, authorized_imports=["numpy.random"], state={})
         evaluate_python_code(code, authorized_imports=["numpy.*"], state={})
         evaluate_python_code(code, authorized_imports=["*"], state={})
+
+    def test_dotted_import_binds_parent_package(self):
+        code = "import html.parser\nisinstance(html.parser.HTMLParser(), html.parser.HTMLParser)"
+        result, _ = evaluate_python_code(code, BASE_PYTHON_TOOLS, state={}, authorized_imports=["html.parser"])
+        assert result is True
+
+        # The parent package itself stays usable, as in normal Python.
+        code = "import html.parser\nhtml.escape('<tag>')"
+        result, _ = evaluate_python_code(code, BASE_PYTHON_TOOLS, state={}, authorized_imports=["html.parser"])
+        assert result == "&lt;tag&gt;"
+
+        code = "import xml.etree.ElementTree\nxml.etree.ElementTree.Element('a').tag"
+        result, _ = evaluate_python_code(
+            code, BASE_PYTHON_TOOLS, state={}, authorized_imports=["xml.etree.ElementTree"]
+        )
+        assert result == "a"
+
+    def test_dotted_import_alias_binds_only_the_alias(self):
+        code = "import html.parser as hp\nisinstance(hp.HTMLParser(), hp.HTMLParser)"
+        result, _ = evaluate_python_code(code, BASE_PYTHON_TOOLS, state={}, authorized_imports=["html.parser"])
+        assert result is True
+
+        code = "import html.parser as hp\nhtml"
+        with pytest.raises(InterpreterError, match="not defined"):
+            evaluate_python_code(code, BASE_PYTHON_TOOLS, state={}, authorized_imports=["html.parser"])
         with pytest.raises(InterpreterError):
             evaluate_python_code(code, authorized_imports=["random"], state={})
 
